@@ -1,7 +1,5 @@
-Sub PDFToExcel_Acrobat()
+Sub PDFToExcel_NativeExport()
 
-    '======================================================
-    ' CONFIGURATION - Edit these paths
     '======================================================
     Const SOURCE_FOLDER As String = "C:\Users\YourName\Documents\PDFs\"
     Const PDF_FILENAME  As String = "your_file.pdf"
@@ -10,28 +8,23 @@ Sub PDFToExcel_Acrobat()
     '======================================================
 
     Dim pdfPath  As String
-    Dim txtPath  As String
     Dim xlsxPath As String
 
     pdfPath  = SOURCE_FOLDER & PDF_FILENAME
-    txtPath  = OUTPUT_FOLDER & Replace(PDF_FILENAME, ".pdf", ".txt")
     xlsxPath = OUTPUT_FOLDER & OUTPUT_XLSX
 
-    ' 1. Check source PDF exists
     If Dir(pdfPath) = "" Then
         MsgBox "PDF not found: " & pdfPath, vbCritical
         Exit Sub
     End If
 
-    ' 2. Create output folder if it doesn't exist
     If Dir(OUTPUT_FOLDER, vbDirectory) = "" Then
         MkDir OUTPUT_FOLDER
     End If
 
-    ' 3. Open PDF with Adobe Acrobat COM and extract text to TXT
-    Dim acroApp  As Object
-    Dim acroDoc  As Object
-    Dim acroText As Object
+    Dim acroApp As Object
+    Dim acroDoc As Object
+    Dim jsObj   As Object
 
     On Error GoTo AcrobatError
 
@@ -39,102 +32,44 @@ Sub PDFToExcel_Acrobat()
     Set acroDoc = CreateObject("AcroExch.PDDoc")
 
     If Not acroDoc.Open(pdfPath) Then
-        MsgBox "Adobe Acrobat could not open: " & pdfPath, vbCritical
+        MsgBox "Could not open PDF.", vbCritical
         GoTo Cleanup
     End If
 
-    ' Use Acrobat's built-in Save As Text via JavaScript
-    Dim jsObj As Object
     Set jsObj = acroDoc.GetJSObject
 
-    ' Save as plain text using Acrobat JS
-    jsObj.saveAs txtPath, "com.adobe.acrobat.plain-text"
+    ' Export directly to Excel format — preserves tables and layout
+    jsObj.saveAs xlsxPath, "com.adobe.acrobat.xlsx"
 
-    ' Small pause to let Acrobat finish writing
+    ' Wait for file to appear
     Dim t As Single
     t = Timer
-    Do While Dir(txtPath) = "" And Timer - t < 15
+    Do While Dir(xlsxPath) = "" And Timer - t < 30
         DoEvents
     Loop
 
     acroDoc.Close
     acroApp.Exit
 
-    Set jsObj   = Nothing
-    Set acroDoc = Nothing
-    Set acroApp = Nothing
-
-    If Dir(txtPath) = "" Then
-        MsgBox "Text extraction failed. Acrobat did not produce a TXT file.", vbCritical
-        Exit Sub
+    If Dir(xlsxPath) = "" Then
+        MsgBox "Export failed. Try Option 2 (XML Spreadsheet) instead.", vbCritical
+        GoTo Cleanup
     End If
 
-    GoTo ReadText
+    ' Open the exported file so user can see it
+    Workbooks.Open xlsxPath
 
-AcrobatError:
-    MsgBox "Adobe Acrobat COM error: " & Err.Description & vbCrLf & _
-           "Make sure Adobe Acrobat (not just Reader) is installed.", vbCritical
+    MsgBox "Done! Excel file saved to: " & xlsxPath, vbInformation
     GoTo Cleanup
 
-    ' 4. Read TXT into array
-ReadText:
-    Dim fileNo    As Integer
-    Dim allLines() As String
-    Dim oneLine   As String
-    Dim lineCount As Long
-
-    fileNo = FreeFile
-    Open txtPath For Input As #fileNo
-    lineCount = 0
-    ReDim allLines(0)
-    Do While Not EOF(fileNo)
-        Line Input #fileNo, oneLine
-        ReDim Preserve allLines(lineCount)
-        allLines(lineCount) = oneLine
-        lineCount = lineCount + 1
-    Loop
-    Close #fileNo
-
-    ' 5. Create new Excel workbook and write data
-    Dim newWB As Workbook
-    Dim ws    As Worksheet
-    Dim i     As Long
-
-    Set newWB = Workbooks.Add
-    Set ws = newWB.Sheets(1)
-    ws.Name = "PDF Content"
-
-    ' Header row
-    With ws
-        .Cells(1, 1).Value = "Line #"
-        .Cells(1, 2).Value = "Content"
-        .Rows(1).Font.Bold = True
-        .Columns("A").ColumnWidth = 8
-        .Columns("B").ColumnWidth = 100
-    End With
-
-    ' Write lines
-    For i = 0 To lineCount - 1
-        ws.Cells(i + 2, 1).Value = i + 1
-        ws.Cells(i + 2, 2).Value = allLines(i)
-    Next i
-
-    ws.Rows.AutoFit
-
-    ' 6. Save new workbook
-    Application.DisplayAlerts = False
-    newWB.SaveAs Filename:=xlsxPath, FileFormat:=xlOpenXMLWorkbook
-    Application.DisplayAlerts = True
-
-    MsgBox "Done!" & vbCrLf & _
-           "TXT saved to: " & txtPath & vbCrLf & _
-           "Excel saved to: " & xlsxPath, vbInformation
+AcrobatError:
+    MsgBox "Acrobat error: " & Err.Description, vbCritical
 
 Cleanup:
     On Error Resume Next
+    Set jsObj   = Nothing
     If Not acroDoc Is Nothing Then acroDoc.Close
     If Not acroApp Is Nothing Then acroApp.Exit
-    Set jsObj   = Nothing
     Set acroDoc = Nothing
     Set acroApp = Nothing
 
